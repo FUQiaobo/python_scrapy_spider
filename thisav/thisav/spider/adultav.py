@@ -35,5 +35,6 @@ class AdultavSpider(scrapy.Spider):
 
         else:
             print('格式不对，不要捉急')
+            
 
 
