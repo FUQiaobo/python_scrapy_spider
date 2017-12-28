@@ -2,6 +2,7 @@
 from scrapy import Request, Spider
 
 
+
 class XiangmuSpider(Spider):
     name = 'environmental'
 
