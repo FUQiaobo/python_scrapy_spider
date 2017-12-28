@@ -29,4 +29,5 @@ class XiaohuaSpider(scrapy.Spider):
                     yield item
                 except:
                     print('格式错误，爬虫结束')
+                    
 
