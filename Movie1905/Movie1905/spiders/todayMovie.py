@@ -3,6 +3,7 @@ import scrapy
 from Movie1905.items import Movie1905Item
 
 
+
 class TodaymovieSpider(scrapy.Spider):
     name = 'todayMovie'
     allowed_domains = ['www.1905.com']
