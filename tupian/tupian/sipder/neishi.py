@@ -22,3 +22,4 @@ class NeishiSpider(scrapy.Spider):
         src = response.xpath('//*[@id="picurl"]/@src').extract()
         item['image_url'] = src
         yield item
+        
