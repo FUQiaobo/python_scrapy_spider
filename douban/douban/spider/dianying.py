@@ -32,6 +32,7 @@ class DianyingSpider(scrapy.Spider):
 
             except:
                 print('格式不对，sorry')
+                
 
 
 
