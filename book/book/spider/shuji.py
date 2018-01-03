@@ -25,8 +25,8 @@ class ShujiSpider(scrapy.Spider):
         if next_page:  #如果存在下一页，则将下一页链接返回自身
             realy_next_page = 'https://book.douban.com'+next_page
             yield Request(url=realy_next_page,callback=self.parse,meta={'dont_redirect': True,"handle_httpstatus_list": [302]})
-    def parse_content(self,response):
-        item = BookItem()
+    def parse_content(self,response): 
+        item = BookItem()   
         title = response.xpath('//*[@id="wrapper"]/h1/span/text()').extract()[0]
         jianjie = response.xpath('normalize-space(//*[@id="info"])').extract()[0]
         neirong = response.xpath('//*[@id="link-report"]/div[1]/div/p/text()|//*[@id="link-report"]/span[1]/div/p/text()').extract()[0]
