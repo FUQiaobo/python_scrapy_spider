@@ -1,0 +1,97 @@
+import requests,sys,time
+from bs4 import BeautifulSoup
+import pymysql
+"""
+类说明，下载笔趣看《飞剑问道》小说
+Paramaters:
+无
+Returns:
+无
+Modify:
+无
+"""
+class MainSpider(object):
+
+    def __init__(self):
+        self.url='http://www.biqukan.net/book/81771/'  #飞剑问道首页
+        self.server='http://www.biqukan.net/'
+        self.names = []  #存放章节名
+        self.link =[]   #存放章节链接
+        self.num = 0    #存放章节数
+        self.conn = pymysql.connect(host='localhost',port=3306,user='root',passwd='qq901212323',db='biquge',charset='utf8')
+        self.cur = self.conn.cursor()
+    """
+    函数说明，获取下载链接
+    Paramaters:
+    无
+    Returns:
+    无
+    Modify:
+    无
+    """
+    def get_download_url(self):
+        req = requests.get(url=self.url)
+        req.encoding='gbk'
+        soup = BeautifulSoup(req.text,'lxml')
+        list = soup.select('#list-chapterAll')
+        div = BeautifulSoup(str(list[0]),'lxml')
+        a = div.select('a')
+        self.num=len(a[1:])
+        for i in a:
+            self.names.append(i.string)
+            self.link.append(self.url+i.get('href'))
+
+    """
+    函数说明，获取章节内容
+    Paramaters:
+    link --章节链接
+    Returns:
+    texts ---章节内容
+    Modify:
+    无
+    """
+    def get_content(self,url):
+        req = requests.get(url)
+        second_url = url[:-5] + '_2.html'
+        second_req = requests.get(second_url)
+        req.encoding='gbk'
+        second_req.encoding='gbk'
+        soup = BeautifulSoup(req.text,'lxml')
+        second_soup = BeautifulSoup(second_req.text,'lxml')
+        content = soup.select('#htmlContent')
+        second_content=second_soup.select('#htmlContent')
+        text = content[0].text.replace('\xa0'*4,'')[75:-45]
+        second_text = second_content[0].text.replace('\xa0'*4,'')[75:]
+        return text+second_text
+
+    """
+    函数说明，保存到本地mysql
+    Paramaters:
+    title --章节名称
+    content ---章节内容
+    url  --保存名称
+    Returns:
+    无
+    Modify:
+    无
+    """
+    def save_mysql(self,title,content,url):
+        sql_insert = "insert into feijian (title,content,url) value ('{}','{}','{}')".format(title,content,url)
+        self.cur.execute(sql_insert)
+        self.conn.commit()
+
+if __name__=="__main__":
+    dl = MainSpider()
+    dl.get_download_url()
+    print('《飞剑问道》 开始下载')
+    for i in range(dl.num):
+        dl.save_mysql(dl.names[i],dl.get_content(dl.link[i]),dl.link[i])
+        sys.stdout.write(" 已下载：%.3f%%" % float(i/dl.num*100) +'\r')
+        sys.stdout.flush()
+    print('《飞剑问道》 下载完成')
+    dl.cur.close()
+    dl.conn.close()
+
+
+
+
