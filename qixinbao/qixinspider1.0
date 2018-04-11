@@ -1,0 +1,92 @@
+from selenium import webdriver
+import requests
+import time
+import pickle
+import ssl
+import pymysql
+import random
+import logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+from selenium.webdriver.common.keys import Keys
+ssl._create_default_https_context=ssl._create_unverified_context
+key = ['昌隆']
+
+url = 'https://www.qixin.com/auth/login?return_url=%2F'
+browser = webdriver.Chrome()
+browser.get(url)
+print('进入: %s' %url)
+time.sleep(1)
+print('进入登陆界面')
+pickle.dump( browser.get_cookies() , open("cookies.pkl","wb"))
+time.sleep(2)
+browser.find_element_by_xpath('/html/body/div[2]/div/div/div[2]/div/div/div/div/div[1]/input').send_keys('15231109698')
+print('已输入用户名')
+browser.find_element_by_xpath('/html/body/div[2]/div/div/div[2]/div/div/div/div/div[2]/input').send_keys('qq901212323')
+print('已输入密码')
+time.sleep(2)
+
+browser.find_element_by_xpath('/html/body/div[2]/div/div/div[2]/div/div/div/div/div[4]/a').click()
+browser.implicitly_wait(5)
+browser.find_element_by_xpath('/html/body/div[1]/div[1]/div[4]/div/div/div[2]/div/span/input[2]').send_keys(key[0])
+logger.info('输入查询值 %s' %key[0])
+browser.find_element_by_xpath('/html/body/div[1]/div[1]/div[4]/div/div/div[2]/div/i').click()
+currentUrl = browser.current_url
+print(currentUrl)
+req = requests.session()
+cookies = browser.get_cookies()
+browser.add_cookie({'name':'15231109698','value':'qq901212323'})
+for cookie in cookies:
+    browser.add_cookie(cookie)
+#是删除原始req里面标记有python机器人的信息。这个信息会被一些网站（比如知乎）捕捉到。造成登陆爬取失败。务必要删除！
+
+def Con_sql():
+    conn = pymysql.connect(host='localhost', port=3306, user='root', passwd='qq901212323', db='ker', charset='utf8')
+    logger.info('数据库连接成功啦啦啦啦~~~吼！！')
+    cur = conn.cursor()
+    browser.implicitly_wait(5)
+    for x in range(2, 50):
+
+        time.sleep(1)
+        browser.implicitly_wait(5)
+        for i in range(1,11):
+            try:
+                c_name =browser.find_element_by_xpath('/html/body/div[5]/div/div[1]/div[3]/div[2]/div[{}]/div[2]/div[1]/div[1]/a'.format(i)).text
+                c_Legalrepresentative = browser.find_element_by_xpath('/html/body/div[5]/div/div[1]/div[3]/div[2]/div[{}]/div[2]/div[1]/div[2]'.format(i)).text
+                c_tel = browser.find_element_by_xpath('/html/body/div[5]/div/div[1]/div[3]/div[2]/div[{}]/div[2]/div[1]/div[3]/span[1]'.format(i)).text
+                c_mail=browser.find_element_by_xpath('/html/body/div[5]/div/div[1]/div[3]/div[2]/div[{}]/div[2]/div[1]/div[3]/span[2]'.format(i)).text
+                c_Registeredcapital= browser.find_element_by_xpath('/html/body/div[5]/div/div[1]/div[3]/div[2]/div[{}]/div[3]/div[1]'.format(i)).text
+                c_Setup = browser.find_element_by_xpath('/html/body/div[5]/div/div[1]/div[3]/div[2]/div[{}]/div[3]/div[2]'.format(i)).text
+                c_status = browser.find_element_by_xpath('/html/body/div[5]/div/div[1]/div[3]/div[2]/div[{}]/div[2]/div[1]/div[6]/span'.format(i)).text
+
+                #sql_insert="INSERT INTO c_information (c_name) value ('{}')".format(c_name)
+                sql_insert = "INSERT INTO c_information (c_name,c_tel,c_mail,c_Legalrepresentative,c_Registeredcapital,c_Setup,c_status) VALUE ('{}','{}','{}','{}','{}','{}','{}')".format(c_name,c_tel,c_mail,c_Legalrepresentative,c_Registeredcapital,c_Setup,c_status)
+                logger.info(' 第%s个写入数据库中..' % i)
+                cur.execute(sql_insert)
+                time.sleep(random.randint(1, 4))
+                logger.debug(c_name,c_tel,c_mail,c_Legalrepresentative,c_Registeredcapital,c_Setup)
+                conn.commit()
+                logger.info('^'*50)
+            except Exception:
+                logger.info('第%s个 电话或邮箱错误' %i)
+
+            time.sleep(1)
+
+        element = browser.find_element_by_xpath('/html/body/div[5]/div/div[1]/div[4]/div/div/div/input')
+        element.send_keys(Keys.BACKSPACE)
+        time.sleep(0.3)
+        element.send_keys(x)
+        logger.info('进入第%s页' % x)
+        browser.find_element_by_xpath('/html/body/div[5]/div/div[1]/div[4]/div/div/div/button').click()
+        browser.implicitly_wait(5)
+        try:
+            browser.find_element_by_xpath('/html/body/div[9]/div/div/div/div/button').click()
+        except:
+            pass
+
+        time.sleep(0.5)
+    cur.close()
+    conn.close()
+
+if __name__=="__main__":
+    Con_sql()
