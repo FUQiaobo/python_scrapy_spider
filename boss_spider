@@ -1,0 +1,434 @@
+import time
+import requests
+import pymysql
+from Proxy_4 import Proxies_4
+from bs4 import BeautifulSoup
+import threading
+from lxml import etree
+import logging  # 引入logging模块
+import os.path
+import json
+import hashlib
+
+
+# 第一步，创建一个logger
+logger = logging.getLogger()
+logger.setLevel(logging.INFO)  # Log等级总开关
+# 第二步，创建一个handler，用于写入日志文件
+rq = time.strftime('%Y%m%d%H%M', time.localtime(time.time()))
+log_path = os.path.dirname(os.getcwd()) + '/BOSS_Logs/'
+log_name = log_path + rq + 'BOSS.log'
+logfile = log_name
+fh = logging.FileHandler(logfile, mode='w')
+fh.setLevel(logging.DEBUG)  # 输出到file的log等级的开关
+# 第三步，定义handler的输出格式
+formatter = logging.Formatter(
+    "%(asctime)s - %(filename)s[line:%(lineno)d] - %(levelname)s: %(message)s")
+fh.setFormatter(formatter)
+# 第四步，将logger添加到handler里面
+logger.addHandler(fh)
+
+class BossResult(object):
+    '''
+    抓取boss直聘全国 当天的职位信息,
+    多线程
+    '''
+    def __init__(self):
+        self.conn = pymysql.connect(host='', user='', password=",", database='RECRUIT_PYTHON',
+                               port=3306, charset='utf8')
+
+    def get_index_page(self,url): #发送第一页请求
+        '''发送page1 页的页面请求
+        Args:
+            url  数据库传参数,构造的url
+        Returns:
+            page 页面的 html
+        '''
+        headers = {
+            'x-devtools-emulate-network-conditions-client-id': "5f2fc4da-c727-43c0-aad4-37fce8e3ff39",
+            'upgrade-insecure-requests': "1",
+            'user-agent': "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_12_6) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/60.0.3112.90 Safari/537.36",
+            'accept': "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8",
+            'dnt': "1",
+            'accept-encoding': "gzip, deflate",
+            'accept-language': "zh-CN,zh;q=0.8,en;q=0.6",
+            'cookie': "__c=1501326829; lastCity=101020100; __g=-; __l=r=https%3A%2F%2Fwww.google.com.hk%2F&l=%2F;"
+                      " __a=38940428.1501326829..1501326829.20.1.20.20; Hm_lvt_194df3105ad7148dcf2b98a91b5e727a=1501326839;"
+                      " Hm_lpvt_194df3105ad7148dcf2b98a91b5e727a=1502948718; __c=1501326829; lastCity=101020100;"
+                      " __g=-; Hm_lvt_194df3105ad7148dcf2b98a91b5e727a=1501326839; Hm_lpvt_194df3105ad7148dcf2b98a91b5e727a=1502954829;"
+                      " __l=r=https%3A%2F%2Fwww.google.com.hk%2F&l=%2F; __a=38940428.1501326829..1501326829.21.1.21.21",
+            'cache-control': "no-cache",
+            'postman-token': "76554687-c4df-0c17-7cc0-5bf3845c9831"
+        }
+        response = requests.get(url=url,headers=headers,timeout=10)
+        return response.text
+
+    def query_data(self): #查询数据
+        conn = pymysql.connect(host='39.106.143.133', user='dujy', password="Datadjy123,", database='RECRUIT_PYTHON',
+                               port=3306, charset='utf8')
+        sql = "select ID,CITY_CODE,DISTRICT,POSITION_CODE,SCRAPYFLAG,ERR from JOB_TABLE WHERE ID > 0 AND SCRAPYFLAG = 0 LIMIT 1"
+        #查询 城市,区域,职位的  代码   只爬取最近一天
+        cor = conn.cursor()
+        cor.execute(sql)
+        each_data = cor.fetchone()
+        lock.acquire()
+        if each_data:
+            ID, CITY_CODE, DISTRICT, POSITION_CODE, SCRAPYFLAG,ERR = each_data
+            sql =f"UPDATE `RECRUIT_PYTHON`.`JOB_TABLE` SET `SCRAPYFLAG` = '1' WHERE `ID` = '{ID}'"
+            cor.execute(sql)
+            conn.commit()
+            cor.close()
+            conn.close()
+            lock.release()
+            return ID, CITY_CODE, DISTRICT, POSITION_CODE, SCRAPYFLAG,ERR
+        else:
+            cor.close()
+            conn.close()
+            lock.release()
+            raise Exception('over')
+
+    def parse_list_page(self,response):
+        '''获取index 列表页
+        Args:
+            response: 访问列表页 html
+
+        Returns: 解析后的列表   url
+            例:
+                ['/job_detail/3487cfe9ca8251791X172di8FFI~.html',
+                '/job_detail/be9a6456d7e211ad1XV72t6_GFE~.html',
+                '/job_detail/c9e2de2fb2d06c101nx63du-FVA~.html',
+                '/job_detail/14710f9c47de5ee51X1y2du7GFo~.html',
+                '/job_detail/475cc23367fbbebf1X1y39-7E1I~.html',
+                '/job_detail/6ee5f05ab7753fa61XJ709y6Fls~.html']
+
+        '''
+        x_res = etree.HTML(response)
+        #当前页面无信息,可能会报错 IndexError: list index out of range
+        try:
+            job_list = x_res.xpath("//div[@class='job-list']//ul")[0]
+            soup = BeautifulSoup(response, 'lxml')
+            job_info_url_list = job_list.xpath("//div[@class='info-primary']//a/@href")
+            if len(job_info_url_list) == 30:
+                try:
+                    next_page = soup.select('.next')[0].attrs['href']
+                except:
+                    next_page = soup.select('.next disabled')[0].attrs['href']
+            else:
+                next_page = 'javascript:;'
+
+        except:
+            next_page = 'None'
+            job_info_url_list = 'None'
+
+        return job_info_url_list,next_page
+
+    def parse_detail_page(self,response,url_link,company_zone):
+        ''' 获取页面详情页信息
+        Args:
+            response: 页面详情页html
+            url_link: 页面详情页链接
+            company_zone: 工作地区  如:海淀区
+
+        Returns: 解析页面后的  工作信息
+            例:
+                {'source_from': 'BOSS',
+                'job_title': 'android',
+                'job_salary': '15K-18K',
+                'job_label': "['Android SDK']",
+                'job_description': '1) 计算机相关专业统招本科以上学历，3年以上全职mobile-app开发经验。2) 精通Android开发及兼容性，追求最优的、突破性的移动端用户体验！3) 熟悉至少一种主流数据库，API调用与原理4) 熟悉Socket、HTTP、TCP/IP系列网络编程及通信协议5) 熟悉C/C++优先;',
+                'job_city': '北京',
+                 'job_experience': '1-3年',
+                 'job_education': '本科',
+                 'post_job_time': '2018-11-16 16:38',
+                 'company_short_name': '北京瑞友科技',
+                 'company_finance': '不需要融资',
+                 'company_industry': '计算机软件',
+                 'company_scale': '1000-9999人',
+                 'company_full_name': '北京瑞友科技股份有限公司',
+                 'company_index': 'http://www.rayootech.com',
+                 'company_location': '北京市朝阳区立水桥南(地铁站)',
+                 'company_logo': 'https://img.bosszhipin.com/beijin/mcs/chatphoto/20170504/534f360c7acf13de323b00ceb4bc4b2a86729215078f7cb62a338f74253ea841.jpg?x-oss-process=image/resize,w_120,limit_0',
+                 'url_link': 'https://www.zhipin.com/job_detail/21695ba65ed0cc981X1y2N69FlU~.html',
+                 'company_zone': '朝阳区'}
+
+        '''
+
+        x_res = etree.HTML(response)
+
+        source_from = 'BOSS'
+        #名称
+        job_name = x_res.xpath("//div[@class='job-banner']//div[@class='info-primary']/div[@class='name']/h1/text()")
+        job_name = job_name[0] if len(job_name) > 0 else ""
+        #薪酬
+        job_salary = x_res.xpath("//div[@class='job-banner']//div[@class='info-primary']/div[@class='name']/span/text()")
+        job_salary = job_salary[0].strip() if len(job_salary) > 0 else ""
+        # 城市、经验、学历
+        job_standard = x_res.xpath("//div[@class='job-banner']//div[@class='info-primary']/p/text()")
+        job_standard = [{each[0]: each[1]} for each in [i.split("：") for i in job_standard]]
+        # 工作标签
+        job_label = x_res.xpath('//div[@class="info-primary"]/div[@class="job-tags"]/span/text()')
+        job_label = str(' '.join(job_label)) if len(job_label) > 0 else ""
+        #工作描述
+        job_description = x_res.xpath("//div[@class='detail-content']/div[@class='job-sec']/div[@class='text']/text()")
+        job_description = ''.join(job_description).strip()
+        #职位提交时间
+        post_job_time = x_res.xpath('//span[@class="time"]/text()')[0].replace('发布于', '')
+        post_job_time = post_job_time if len(post_job_time) > 0 else ""
+        #公司地区
+        company_zone = company_zone
+        #公司简称
+        company_short_name = x_res.xpath('//*[@id="main"]/div[1]/div/div/div[3]/h3/a/text()')
+        company_short_name = company_short_name[0] if len(company_short_name) > 0 else ""
+        #公司行业
+        company_industry = x_res.xpath('//*[@id="main"]/div[1]/div/div/div[3]/p[1]/a/text()')
+        company_industry = company_industry[0] if len(company_industry) > 0 else ""
+        #公司人数
+        # company_scale = x_res.xpath('//*[@id="main"]/div[1]/div/div/div[3]/p[1]/text()')
+        # company_scale = company_scale[1] if len(company_scale) > 0 else ""
+        #公司融资
+        # company_finance = x_res.xpath('//*[@id="main"]/div[1]/div/div/div[3]/p[1]/text()')
+        # company_finance = company_finance[0] if len(company_finance) > 0 else ""
+        #公司详情链接
+        company_detail_href = x_res.xpath('//*[@id="main"]/div[1]/div/div/div[3]/div/a/@href')
+        company_detail_href = company_detail_href[0] if len(company_detail_href) > 0 else ""
+        #页面链接
+        url_link = url_link
+        #公司全称
+        company_full_name = x_res.xpath('//div[@class="job-sec"]/div[@class="name"]/text()')
+        company_full_name = company_full_name[0] if len(company_full_name) > 0 else ""
+        #公司主页
+        company_index = x_res.xpath('//div[@class="info-company"]/p[2]/text()')
+        company_index = company_index[0] if len(company_index) > 0 else ""
+        #公司地点
+        company_location = x_res.xpath('//div[@class="location-address"]/text()')[0].replace(' ', '')
+        company_location = company_location if len(company_location) > 0 else ""
+        #公司logo
+        company_logo = x_res.xpath('//div[@class="info-company"]/div/a/img/@src')
+        company_logo = company_logo[0] if len(company_logo) > 0 else ""
+        # 工作城市
+        job_city = job_standard[0]['城市']
+        # 工作经验
+        job_experience = job_standard[1]['经验']
+        #工作学历
+        job_education = job_standard[2]['学历']
+        job_info = {"source_from":source_from,
+                    "job_title": job_name,
+                    "job_salary":job_salary,
+                    "job_education": job_education,
+                    "job_experience": job_experience,
+                    "job_city": job_city,
+                    "job_label":job_label,
+                    "job_description":job_description,
+                    "post_job_time":post_job_time,
+                    "company_zone": company_zone,
+                    "company_short_name":company_short_name,
+                    # "company_finance":company_finance,
+                    "company_industry":company_industry,
+                    "company_detail_href":company_detail_href,
+                    # "company_scale":company_scale,
+                    "company_full_name":company_full_name,
+                    "company_index":company_index,
+                    "company_location":company_location,
+                    "company_logo":company_logo,
+                    "url_link":url_link,
+                    }
+
+        return job_info
+    def parse_company_detail_page(self,url):
+        '''
+
+        :param url:
+        :return: 公司详情介绍
+        '''
+        headers = {
+            'x-devtools-emulate-network-conditions-client-id': "5f2fc4da-c727-43c0-aad4-37fce8e3ff39",
+            'upgrade-insecure-requests': "1",
+            'user-agent': "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_12_6) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/60.0.3112.90 Safari/537.36",
+            'accept': "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8",
+            'dnt': "1",
+            'Keep-Alive':'close',
+            'accept-encoding': "gzip, deflate",
+            'accept-language': "zh-CN,zh;q=0.8,en;q=0.6",
+            'cookie': "__c=1501326829; lastCity=101020100; __g=-; __l=r=https%3A%2F%2Fwww.google.com.hk%2F&l=%2F;"
+                      " __a=38940428.1501326829..1501326829.20.1.20.20; Hm_lvt_194df3105ad7148dcf2b98a91b5e727a=1501326839;"
+                      " Hm_lpvt_194df3105ad7148dcf2b98a91b5e727a=1502948718; __c=1501326829; lastCity=101020100;"
+                      " __g=-; Hm_lvt_194df3105ad7148dcf2b98a91b5e727a=1501326839; Hm_lpvt_194df3105ad7148dcf2b98a91b5e727a=1502954829;"
+                      " __l=r=https%3A%2F%2Fwww.google.com.hk%2F&l=%2F; __a=38940428.1501326829..1501326829.21.1.21.21",
+            'cache-control': "no-cache",
+            'postman-token': "76554687-c4df-0c17-7cc0-5bf3845c9831"
+        }
+        response = requests.get(url=url,headers=headers,timeout=10)
+        x_res = etree.HTML(response.text)
+        company_detail_info = x_res.xpath('//*[@id="main"]/div[3]/div/div[2]/div/div[1]/div[1]/text()')
+        company_detail_info = company_detail_info[0] if len(company_detail_info) > 0 else ""
+        return company_detail_info
+
+    def save_to_mysql(self,response):
+        '''
+
+        :param response: 工作信息的字典
+        :return: None  ,入库
+        '''
+
+        SOURCE_FROM = response['source_from']
+        JOB_NAME = response['job_title']
+        JOB_SALARY = response['job_salary']
+        JOB_EDUCATION = response['job_education']
+        JOB_EXPERIENCE = response['job_experience']
+        JOB_CITY = response['job_city']
+        JOB_LABEL = response['job_label']
+        JOB_DESCRIPTION = response['job_description']
+        POST_JOB_TIME = response['post_job_time']
+        COMPANY_ZONE = response['company_zone']
+        COMPANY_SHORT_NAME = response['company_short_name']
+        # COMPANY_FINANCE = response['company_finance']
+        COMPANY_INDUSTRY = response['company_industry']
+        COMPANY_DETAIL_INFO = response['company_detail_info']
+        # COMPANY_SCALE = response['company_scale']
+        COMPANY_FULL_NAME = response['company_full_name']
+        COMPANY_INDEX = response['company_index']
+        COMPANY_LOCATION = response['company_location']
+        COMPANY_LOGO = response['company_logo']
+        URL_LINK = response['url_link']
+        TOKEN = response['token']
+
+        conn = pymysql.connect(host='', user='', password=",", database='RECRUIT_PYTHON',
+                               port=3306, charset='utf8')
+        sql = f"INSERT INTO BOSS_RESULT(SOURCE_FROM,JOB_NAME,JOB_SALARY,JOB_EDUCATION,JOB_DESCRIPTION,JOB_CITY,JOB_LABEL,JOB_EXPERIENCE,POST_JOB_TIME,COMPANY_ZONE,COMPANY_SHORT_NAME,COMPANY_INDUSTRY,COMPANY_DETAIL_INFO,COMPANY_FULL_NAME,COMPANY_INDEX,COMPANY_LOCATION,COMPANY_LOGO,URL_LINK,TOKEN) VALUES ('{SOURCE_FROM}','{JOB_NAME}','{JOB_SALARY}','{JOB_EDUCATION}','{JOB_DESCRIPTION}','{JOB_CITY}','{JOB_LABEL}','{JOB_EXPERIENCE}','{POST_JOB_TIME}','{COMPANY_ZONE}','{COMPANY_SHORT_NAME}','{COMPANY_INDUSTRY}','{COMPANY_DETAIL_INFO}','{COMPANY_FULL_NAME}','{COMPANY_INDEX}','{COMPANY_LOCATION}','{COMPANY_LOGO}','{URL_LINK}','{TOKEN}')"
+        cor = conn.cursor()
+        cor.execute(sql)
+        print(f'存入数据库成功{response}')
+        conn.commit()
+        cor.close()
+        conn.close()
+    def query_token(self,token):
+        conn = pymysql.connect(host='', user='', password=",", database='RECRUIT_PYTHON',
+                               port=3306, charset='utf8')
+        cor = conn.cursor()
+        sql = f"SELECT TOKEN FROM BOSS_RESULT WHERE TOKEN='{token}'"
+        cor.execute(sql)
+        response = cor.fetchone()
+        cor.close()
+        conn.close()
+        return response  #None or str
+
+    def up_post_job_time(self,token,post_job_time):
+        conn = pymysql.connect(host='', user='', password=",", database='RECRUIT_PYTHON',
+                               port=3306, charset='utf8')
+        sql = f"UPDATE BOSS_RESULT SET POST_JOB_TIME='{post_job_time}' where TOKEN = '{token}'"
+        cor = conn.cursor()
+        lock.acquire(timeout=3)
+        cor.execute(sql)
+        lock.release()
+        conn.commit()
+        logger.info(f'TOKEN 为: {token} 数据库内有重复数据,更新职位提交时间')
+        cor.close()
+        conn.close()
+
+    def up_status(self,SCRAPYFLAG,ID,ERR):  # 更新数据status
+        conn = pymysql.connect(host='', user='', password=",", database='RECRUIT_PYTHON',
+                               port=3306, charset='utf8')
+        cor = conn.cursor()
+        SQL = f"UPDATE `RECRUIT_PYTHON`.`JOB_TABLE` SET `SCRAPYFLAG` = '{SCRAPYFLAG}',`ERR`='{ERR}' WHERE `ID` = '{ID}'"
+        lock.acquire()
+        cor.execute(SQL)
+        lock.release()
+        if SCRAPYFLAG == '1':
+            logger.info(f'ID 为: {ID} SCRAPYFLAG = {SCRAPYFLAG},正在爬取')
+            print(f'ID 为: {ID} SCRAPYFLAG = {SCRAPYFLAG},正在爬取')
+        elif SCRAPYFLAG == '2':
+            logger.info(f'ID 为: {ID} SCRAPYFLAG = {SCRAPYFLAG},写入数据成功')
+            print(f'ID 为: {ID} SCRAPYFLAG = {SCRAPYFLAG},写入数据成功')
+        elif SCRAPYFLAG == '3':
+            logger.info(f'ID 为: {ID} SCRAPYFLAG = {SCRAPYFLAG},该页无数据')
+            print(f'ID 为: {ID} SCRAPYFLAG = {SCRAPYFLAG},该页无数据')
+        elif SCRAPYFLAG == '9':
+            logger.info(f'ID 为: {ID} SCRAPYFLAG = {SCRAPYFLAG},请求失败,错误原因为: {ERR}')
+            print(f'ID 为: {ID} SCRAPYFLAG = {SCRAPYFLAG},请求失败,错误原因为: {ERR}')
+        conn.commit()
+        cor.close()
+        conn.close()
+
+    def _all(self,CITY_CODE,POSITION_CODE,DISTRICT,page):
+        url = f'https://www.zhipin.com/c{CITY_CODE}-p{POSITION_CODE}/b_{DISTRICT}/?period=1&page={page}'
+        response = self.get_index_page(url=url)
+        job_info_url_list, next_page = self.parse_list_page(response)
+        return job_info_url_list,next_page
+
+    def get_token(self,md5str):
+        # 生成一个md5对象
+        m1 = hashlib.md5()
+        # 使用md5对象里的update方法md5转换
+        m1.update(md5str.encode("utf-8"))
+        token = m1.hexdigest()
+        return token
+
+    def parse_run(self):  # 主函数
+        root_url = 'https://www.zhipin.com'
+        while True:
+            try:
+                ID, CITY_CODE, DISTRICT, POSITION_CODE, SCRAPYFLAG, ERR = self.query_data()
+            except Exception as e:
+                logger.error(f'获取查询条件失败,正在重试.错误为{e}.........')
+                if str(e) == 'over':
+                    break
+                continue
+            page = 1
+            i = 1
+            while True:
+                if i > 10:   #列表页重试10次
+                    self.up_status(SCRAPYFLAG=9, ID=ID, ERR='失败次数过多')
+                    break
+                try:
+                    job_info_url_list, next_page = self._all(CITY_CODE,POSITION_CODE,DISTRICT,page)
+                except:
+                    i+=1
+                    continue
+                if job_info_url_list == 'None' or next_page == 'None':
+                    self.up_status(SCRAPYFLAG='3', ID=ID, ERR='请求该条件无数据')
+                    break
+                for job_info_url in job_info_url_list:
+                    for i in range(10): #详情页重试10次
+                        try:
+                            detail_response = self.get_index_page(url=root_url+job_info_url)
+                            response = self.parse_detail_page(response=detail_response,url_link=root_url+job_info_url,company_zone=DISTRICT)
+                            company_detail_href = response['company_detail_href']
+                            response['company_detail_info'] = self.parse_company_detail_page(root_url+company_detail_href)
+                            TOKEN = response['job_title']+response['job_salary']+response['job_education']+response['job_experience']+response['job_city']+response['company_zone']+response['company_short_name']
+                            response['token'] = self.get_token(TOKEN)
+                            if self.query_token(token=response['token']): #判断数据库是否有数据
+                                self.up_post_job_time(token=response['token'], post_job_time=response['post_job_time'])
+                            else:
+                                self.save_to_mysql(response=response)
+                            self.up_status(SCRAPYFLAG='2', ID=ID, ERR='None')
+                            break
+                        except:
+                            if i == 9:
+                                self.up_status(SCRAPYFLAG='9', ID=ID, ERR='重试次数过多')# 重试10次 失败,更新为 9
+                            continue
+
+                if next_page == 'javascript:;':
+                    break
+                else:
+                    page +=1
+                    continue
+
+    def run(self):
+        '''创建线程'''
+        threads = []
+        # 创建解析paese函数线程
+        for i in range(200):
+            t_parse = threading.Thread(
+                target=self.parse_run,
+                name='parse_{}'.format(i))
+            threads.append(t_parse)
+        for t in threads:
+            t.start()
+            time.sleep(1)
+        for t in threads:
+            t.join()
+
+if __name__ == '__main__':
+    row = BossResult()
+    lock = threading.Lock()
+    row.run()
